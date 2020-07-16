@@ -1,14 +1,10 @@
-import os,subprocess,datetime,argparse,sys
+import os,subprocess,datetime,argparse,sys,shutil
 
 YOUTUBE_DL_PROCESS="youtube-dl"
 FFMPEG_PROCESS="ffmpeg"
 
-#just a quick run of the program
-def command_exists(comm):
-    try:
-        subprocess.getstatusoutput("%s")
-        return True
-    except:return False
+#swapping subprocess to shutil, subprocess doesn't throw error as assumed. Still returns status 1 but with default system response for missing command
+def command_exists(comm):return True if shutil.which(comm) else False
 
 def parse_duration(length):
     spl=length.split(":")
@@ -18,6 +14,16 @@ def parse_duration(length):
     if len(spl)>2:h=int(spl[-3])
     return datetime.timedelta(hours=h,minutes=m,seconds=s)
 
+def execute_print(cmd):
+    p=subprocess.Popen(cmd,stdout=subprocess.PIPE,universal_newlines=True)
+    for stdout_line in iter(p.stdout.readline,""):
+        print(stdout_line,end="")
+    p.stdout.close()
+    status=p.wait()
+    return status
+
+#TODO change with -j argument to have YTDL dump json.
+#TODO add playlist/channel parsing to easily download multiple videos
 def get_video_information(video_url):
     """
     1. video stream
@@ -42,8 +48,9 @@ def strfdelta(deltatime):
     return "{:02}:{:02}:{:02}".format(int(hours),int(mins),int(sec))
 
 def create_youtubedl_download(video_url,output_location=None):return "%s \"%s\"%s"%(YOUTUBE_DL_PROCESS,video_url," -o \"%s\""%output_location if output_location else "")
+#had to add -strict -2 to allow opus in MP4 video, will have to look at tweaking FFMPEG command in future
 def create_ffmpeg_command(video_src,audio_src,start_time,output_filename):
-    return "%s -y -ss %s -i \"%s\" -ss %s -i \"%s\" -map 0:v -map 1:a -t 7:10 -acodec copy -vcodec copy \"%s\""%(FFMPEG_PROCESS,start_time,video_src,start_time,audio_src,output_filename)
+    return "%s -y -ss %s -i \"%s\" -ss %s -i \"%s\" -map 0:v -map 1:a -t 7:10 -acodec copy -vcodec copy -strict -2 \"%s\""%(FFMPEG_PROCESS,start_time,video_src,start_time,audio_src,output_filename)
 
 if not command_exists(YOUTUBE_DL_PROCESS):
     print("Youtube-dl process (\"%s\") not found, exiting"%YOUTUBE_DL_PROCESS)
@@ -85,6 +92,8 @@ for video in vid:
             #ffmpeg seems to struggle with outputting to webm file, so if that occurs then will output to mkv
             #Not exactly literate in ffmpeg meself
             f,ext=os.path.splitext(filep)
+            #TODO look at different file extensions in case of conversion errors
+            #filep=f+".mkv"
             dur=vidinfo[3]
             print("Output filename: %s"%filep)
             print("Video duration: %s"%strfdelta(dur))
@@ -92,24 +101,18 @@ for video in vid:
             if cut_longer:
                 print("Amount to cut by is longer than video duration, will just download entire video")
                 ytdl_command=create_youtubedl_download(video)
-                st,outp=subprocess.getstatusoutput(ytdl_command)
-                if not st==0:
-                    print("Youtube-dl threw error, displaying output")
-                    print(outp)
-                else:
-                    print("Download complete, file stored at %s"%filep)
+                st=execute_print(ytdl_command)
+                if st:print("YTDL returned non 0 error code, download failed")
+                else:print("Download complete, file stored at %s"%filep)
             else:
                 start_time=dur-parsedtime
                 print("Starting cut at %s"%strfdelta(start_time))
                 ffmpeg_command=create_ffmpeg_command(vstream,astream,strfdelta(start_time),filep)
                 #print(ffmpeg_command)
                 print("Starting ffmpeg, this may take some time")
-                st,outp=subprocess.getstatusoutput(ffmpeg_command)
-                if st==0:
-                    print("Download complete, file stored at %s"%filep)
-                else:
-                    print("ffmpeg threw error, displaying output")
-                    print(outp)
+                st=execute_print(ffmpeg_command)
+                if st:print("FFMPEG returned non 0 error code, download failed")
+                else:print("Download complete, file stored at %s"%filep)
         else:
             print("Failed to parse youtube-dl output")
     except Exception as e:
