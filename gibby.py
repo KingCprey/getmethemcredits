@@ -228,7 +228,7 @@ for video in vid:
                     else: #FFMPEG download
                         start_time=duration-parsedtime
                         print("Starting cut at %s"%strfdelta(start_time,True))
-                        ffmpeg_command=create_ffmpeg_command(vstream["url"],astream["url"],start_time,f_name,v_codec,a_codec)
+                        ffmpeg_command=create_ffmpeg_command(vstream["url"],astream["url"],start_time,f_name)
                         stat=execute_print(ffmpeg_command)
                         if stat:
                             print("ffmpeg returned non-zero error code, assuming download failed")
