@@ -109,7 +109,7 @@ def argparse_name(n):
 def format_extra_args(args):
     a=[]
     for k,v in args.items():
-        if v:a.append("%s %s"%(k,v))
+        if v:a.append("%s %s"%(k,("\"%s\""%v) if v is str else v))
         else:a.append(k)
     return " ".join(a)
 
@@ -124,6 +124,7 @@ if not command_exists(FFMPEG_PROCESS):
 aparser=argparse.ArgumentParser()
 aparser.add_argument("video_url",help="A video url or text file with videos to download")
 aparser.add_argument("start_time",help="How far before the end of the video to start the cut from (HH:MM:SS)")
+aparser.add_argument("--overwrite",action="store_true",help="Overwrite existing downloads (default: False)")
 
 #YTDL COMMANDS
 ytdl_no_playlist="--no-playlist"
@@ -131,8 +132,8 @@ ytdl_plist_start="--playlist-start"
 ytdl_plist_end="--playlist-end"
 ytdl_max_downloads="--max-downloads"
 ytdl_output_format1="-o"
-ytdl_output_format2="--output-template"
-ytdl_passto=[ytdl_no_playlist,ytdl_plist_start,ytdl_plist_end,ytdl_max_downloads]
+ytdl_output_format2="--output" #am idiot
+ytdl_passto=[ytdl_no_playlist,ytdl_plist_start,ytdl_plist_end,ytdl_max_downloads,ytdl_output_format1,ytdl_output_format2]
 aparser.add_argument(ytdl_no_playlist,action="store_true",help="Only download one video")
 aparser.add_argument(ytdl_plist_start,type=int,help="The playlist index to start downloading from")
 aparser.add_argument(ytdl_plist_end,type=int,help="The index to stop downloading playlist")
@@ -218,13 +219,16 @@ for video in vid:
                     duration=datetime.timedelta(seconds=f_duration)
                     cut_longer=parsedtime.total_seconds()>duration.total_seconds()
                     stat=0
-                    print("Downloading {0} -> {1}".format(f_title,f_name))
+                    #file checking
+                    if os.path.isfile(f_name) and not parsed.overwrite:print("{0} already exists at {1}, skipping. Specify --overwrite to download again".format(f_title,f_name))
+                    else:
+                        print("Downloading {0} -> {1}".format(f_title,f_name))
                     if cut_longer: #YTDL download
                         print("Downloading using YTDL as specified cut is longer than video")
                         ytdl_command="{0} \"{1}\" -o {2}"
                         stat=execute_print(ytdl_command)
                         if stat:
-                            print("YTDL returned non-zero error code, assuming download failed")
+                            print("YTDL returned non-zero error code, download may be incomplete")
                     else: #FFMPEG download
                         start_time=duration-parsedtime
                         print("Starting cut at %s"%strfdelta(start_time,True))
@@ -232,12 +236,11 @@ for video in vid:
                         stat=execute_print(ffmpeg_command)
                         if stat:
                             print("ffmpeg returned non-zero error code, assuming download failed")
-                    if os.path.isfile(f_name):
-                        if stat:
-                            print("File still exists at {0}, probably incomplete download".format(f_name))
                             continue
+                    if os.path.isfile(f_name):
                         fsize=os.path.getsize(f_name)
                         print("Downloaded {1} bytes".format(f_title,fsize))
+                        successful+=1
                     else:print("Can't find file at {0}, assuming failed".format(f_name))
                 except ValueError as ve:raise ve
                 except Exception as e:
